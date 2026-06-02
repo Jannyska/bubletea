@@ -255,6 +255,10 @@
     }
     .shared-block .sb-title { font-size: 12px; font-weight: 500; color: var(--text-primary); margin-bottom: 4px; }
     .shared-block .sb-names { font-size: 11px; color: var(--text-secondary); }
+    .ilink { color: var(--text-info); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .ilink:hover { opacity: .8; }
+    .role-pill { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px; background: var(--bg-warning); color: var(--text-warning); font-size: 10px; cursor: pointer; vertical-align: middle; }
+    .role-pill:hover { filter: brightness(.96); }
 
     canvas {
       touch-action: none;
@@ -513,7 +517,7 @@ function sharedCount(b1, b2) { return sharedMembers(b1, b2).length; }
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-let W, H, nodes = [], hoveredId = null, selectedBubbleId = null, selectedPersonId = null, searchHighlight = null, highlightFamily = null;
+let W, H, nodes = [], hoveredId = null, selectedBubbleId = null, selectedPersonId = null, searchHighlight = null, highlightFamily = null, highlightRole = null;
 
 function isDark() { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; }
 
@@ -711,6 +715,9 @@ function draw() {
     } else if (highlightFamily) {
       if (n.id === selectedBubbleId) state = 'selected';
       else state = (n.data.family === highlightFamily) ? 'related' : 'dimmed';
+    } else if (highlightRole) {
+      if (n.id === selectedBubbleId) state = 'selected';
+      else state = bubbleHasRole(n.data, highlightRole) ? 'related' : 'dimmed';
     } else if (selectedBubbleId) {
       if (n.id === selectedBubbleId) state = 'selected';
       else state = 'dimmed';
@@ -784,14 +791,11 @@ canvas.addEventListener('touchend', e => {
     selectedBubbleId = null; selectedPersonId = null;
     document.getElementById('detail').innerHTML = 'Klepni na bublinu pro detail.';
     document.getElementById('person-detail').style.display = 'none';
+    highlightRole = null;
+    clearHash();
     draw(); return;
   }
-  selectedBubbleId = n.id; selectedPersonId = null;
-  document.getElementById('person-detail').style.display = 'none';
-  renderBubbleDetail(n.data);
-  draw();
-  // Scroll na detail
-  setTimeout(() => document.getElementById('detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+  selectBubbleById(n.id);
 }, { passive: false });
 
 canvas.addEventListener('click', e => {
@@ -801,12 +805,11 @@ canvas.addEventListener('click', e => {
     selectedBubbleId = null; selectedPersonId = null;
     document.getElementById('detail').innerHTML = 'Najeď na bublinu pro náhled členů, klikni pro detail.';
     document.getElementById('person-detail').style.display = 'none';
+    highlightRole = null;
+    clearHash();
     draw(); return;
   }
-  selectedBubbleId = n.id; selectedPersonId = null;
-  document.getElementById('person-detail').style.display = 'none';
-  renderBubbleDetail(n.data);
-  draw();
+  selectBubbleById(n.id);
 });
 
 function renderBubbleDetail(b) {
@@ -815,26 +818,29 @@ function renderBubbleDetail(b) {
     const p = pMap[mid], isLeader = mid === b.leaderId;
     const activeClass = selectedPersonId === mid ? ' active' : '';
     const role = roleOf(b.id, mid);
-    return `<span class="chip clickable${isLeader?' leader':''}${activeClass}" onclick="selectPerson('${mid}')">${p.name}${isLeader?' ★':''}${role?` · ${role}`:''}</span>`;
-  }).join('');
+    const rolePill = role ? ` <span class="role-pill" onclick="event.stopPropagation();selectRole('${chEscapeAttr(role)}')">${chEscape(role)}</span>` : '';
+    return `<span class="chip clickable${isLeader?' leader':''}${activeClass}" onclick="selectPerson('${mid}')">${chEscape(p.name)}${isLeader?' ★':''}</span>${rolePill}`;
+  }).join(' ');
   const sharedBlocks = DATA.bubbles
     .filter(b2 => b2.id !== b.id && sharedCount(b, b2) > 0)
     .sort((a, b2) => sharedCount(b, b2) - sharedCount(b, a))
     .map(b2 => {
       const shared = sharedMembers(b, b2);
-      const names = shared.map(mid => pMap[mid].name).join(', ');
-      return `<div class="shared-block"><div class="sb-title">${b2.name} <span style="font-weight:400;color:var(--text-secondary)">(${shared.length})</span></div><div class="sb-names">${names}</div></div>`;
+      const names = shared.map(mid => `<span class="ilink" onclick="selectPerson('${mid}')">${chEscape(pMap[mid].name)}</span>`).join(', ');
+      return `<div class="shared-block"><div class="sb-title"><span class="ilink" onclick="selectBubbleById('${b2.id}')">${chEscape(b2.name)}</span> <span style="font-weight:400;color:var(--text-secondary)">(${shared.length})</span></div><div class="sb-names">${names}</div></div>`;
     }).join('');
   document.getElementById('detail').innerHTML = `
-    <div class="det-title">${b.name}</div>
-    ${b.description ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;font-style:italic">${b.description}</div>` : ''}
-    <div class="det-sub">Leader: <strong>${leader.name}</strong> · ${b.members.length} členů · klikni na člena pro jeho bubliny</div>
+    <div class="det-title">${chEscape(b.name)}</div>
+    ${b.description ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;font-style:italic">${chEscape(b.description)}</div>` : ''}
+    <div class="det-sub">Leader: <strong class="ilink" onclick="selectPerson('${b.leaderId}')">${chEscape(leader.name)}</strong> · ${b.members.length} členů · klikni na člena pro jeho bubliny</div>
     <div class="det-members">${memberChips}</div>
     ${sharedBlocks ? `<div class="section-label">Sdílí členy s</div>${sharedBlocks}` : ''}
   `;
 }
 
 function selectPerson(pid) {
+  if (!pMap[pid]) return;
+  highlightRole = null;
   selectedPersonId = pid;
   if (selectedBubbleId) renderBubbleDetail(bMap[selectedBubbleId]);
   const p = pMap[pid];
@@ -843,27 +849,66 @@ function selectPerson(pid) {
   const bChips = myBubbles.map(b => {
     const isLeader = b.leaderId === pid;
     const role = roleOf(b.id, pid);
-    return `<span class="chip${isLeader?' leader':''}">${b.name}${isLeader?' ★':''}${role?` · ${role}`:''}</span>`;
-  }).join('');
+    const rolePill = role ? ` <span class="role-pill" onclick="event.stopPropagation();selectRole('${chEscapeAttr(role)}')">${chEscape(role)}</span>` : '';
+    return `<span class="chip clickable${isLeader?' leader':''}" onclick="selectBubbleById('${b.id}')">${chEscape(b.name)}${isLeader?' ★':''}</span>${rolePill}`;
+  }).join(' ');
   const contact = CONTACTS[pid] || {};
   const contactHtml = [
-    contact.phone ? `<a href="tel:${contact.phone}" style="color:var(--text-secondary);text-decoration:none;font-size:11px">📞 ${contact.phone}</a>` : '',
-    contact.email ? `<a href="mailto:${contact.email}" style="color:var(--text-secondary);text-decoration:none;font-size:11px">✉ ${contact.email}</a>` : ''
+    contact.phone ? `<a href="tel:${contact.phone}" style="color:var(--text-secondary);text-decoration:none;font-size:11px">📞 ${chEscape(contact.phone)}</a>` : '',
+    contact.email ? `<a href="mailto:${contact.email}" style="color:var(--text-secondary);text-decoration:none;font-size:11px">✉ ${chEscape(contact.email)}</a>` : ''
   ].filter(Boolean).join('<br>');
   const pd = document.getElementById('person-detail');
   pd.style.display = 'block';
   pd.innerHTML = `
     <div class="pd-top">
-      <img class="pd-photo" src="${getPhoto(pid)}" alt="${p.name}">
+      <img class="pd-photo" src="${getPhoto(pid)}" alt="${chEscape(p.name)}">
       <div class="pd-info">
-        <div class="pd-name">${p.name}</div>
+        <div class="pd-name">${chEscape(p.name)}</div>
         <div class="pd-sub">${myBubbles.length} bublin · ${asLeader.length > 0 ? `leader v ${asLeader.length}` : 'není leader'}</div>
         ${contactHtml ? `<div class="pd-contact">${contactHtml}</div>` : ''}
       </div>
     </div>
     <div class="pd-bubbles">${bChips}</div>
   `;
+  setHash('p', pid);
   pd.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// klikací role → výpis kdo ji má a kde (sdílitelné přes odkaz)
+function selectRole(role) {
+  selectedBubbleId = null; selectedPersonId = null;
+  if (highlightFamily) { highlightFamily = null; buildLegend(); }
+  searchHighlight = null;
+  highlightRole = role;
+  const s = document.getElementById('search'); if (s) s.value = '';
+  document.getElementById('person-detail').style.display = 'none';
+  const pairs = [];
+  for (const bid in ROLES) for (const pid in ROLES[bid])
+    if (chNorm(ROLES[bid][pid]) === chNorm(role) && pMap[pid] && bMap[bid]) pairs.push({ pid, bid });
+  if (chNorm(role) === chNorm('vedoucí'))
+    DATA.bubbles.forEach(b => { if (b.leaderId && pMap[b.leaderId] && !pairs.some(o => o.pid === b.leaderId && o.bid === b.id)) pairs.push({ pid: b.leaderId, bid: b.id }); });
+  const rows = pairs.length
+    ? pairs.map(o => `<div style="margin:5px 0"><span class="chip clickable" onclick="selectPerson('${o.pid}')">${chEscape(pMap[o.pid].name)}</span> <span style="color:var(--text-tertiary);font-size:11px">·</span> <span class="ilink" onclick="selectBubbleById('${o.bid}')">${chEscape(bMap[o.bid].name)}</span></div>`).join('')
+    : `<div style="color:var(--text-secondary);font-size:12px">Tuhle roli zatím nikdo nemá.</div>`;
+  document.getElementById('detail').innerHTML =
+    `<div class="det-title">Role: ${chEscape(role)}</div><div class="det-sub">kdo má tuhle roli a kde</div>${rows}`;
+  setHash('role', role);
+  draw();
+  setTimeout(() => document.getElementById('detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+}
+
+// --- sdílitelné odkazy (deep-link přes URL hash) ---
+function chEscapeAttr(s) { return (s || '').replace(/['"\\]/g, '\\$&'); }
+function setHash(kind, val) { try { history.replaceState(null, '', '#' + kind + '=' + encodeURIComponent(val)); } catch (e) {} }
+function clearHash() { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {} }
+function applyHash() {
+  const h = location.hash.replace(/^#/, '');
+  const m = /^(p|b|role)=(.*)$/.exec(h);
+  if (!m) return;
+  const val = decodeURIComponent(m[2]);
+  if (m[1] === 'p' && pMap[val]) { selectedBubbleId = null; document.getElementById('person-detail').style.display = 'none'; selectPerson(val); }
+  else if (m[1] === 'b' && bMap[val]) selectBubbleById(val);
+  else if (m[1] === 'role') selectRole(val);
 }
 
 // --- Autocomplete ---
@@ -949,7 +994,7 @@ searchEl.addEventListener('focus', () => {
 
 function onSearch(val) {
   searchHighlight = val.trim().toLowerCase() || null;
-  if (searchHighlight && highlightFamily) { highlightFamily = null; buildLegend(); }
+  if (searchHighlight) { if (highlightFamily) { highlightFamily = null; buildLegend(); } highlightRole = null; }
   draw();
 }
 
@@ -1072,6 +1117,12 @@ async function loadFromSheets() {
 function roleOf(bubbleId, personId) {
   return (ROLES[bubbleId] && ROLES[bubbleId][personId]) || '';
 }
+function bubbleHasRole(b, role) {
+  const r = chNorm(role);
+  if (b.members.some(pid => chNorm(roleOf(b.id, pid)) === r)) return true;
+  if (r === chNorm('vedoucí') && b.leaderId) return true;
+  return false;
+}
 
 function showLoadError(e) {
   const canvasEl = document.getElementById('c');
@@ -1109,6 +1160,7 @@ function buildLegend() {
 
 function toggleFamily(f) {
   highlightFamily = (highlightFamily === f) ? null : f;
+  highlightRole = null;
   // zvýraznění rodiny a hledání se navzájem vylučují
   if (highlightFamily) {
     searchHighlight = null;
@@ -1131,15 +1183,19 @@ async function start() {
   buildMaps();
   buildLegend();
   initLayout();
+  applyHash();
+  window.addEventListener('hashchange', applyHash);
 }
 
 // ===================== Chat / průvodce mapou =====================
 function selectBubbleById(bid) {
   const n = nodes.find(x => x.id === bid);
   if (!n) return;
+  highlightRole = null;
   selectedBubbleId = bid; selectedPersonId = null;
   document.getElementById('person-detail').style.display = 'none';
   renderBubbleDetail(n.data);
+  setHash('b', bid);
   draw();
   setTimeout(() => document.getElementById('detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
 }
