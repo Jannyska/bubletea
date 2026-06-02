@@ -255,10 +255,8 @@
     }
     .shared-block .sb-title { font-size: 12px; font-weight: 500; color: var(--text-primary); margin-bottom: 4px; }
     .shared-block .sb-names { font-size: 11px; color: var(--text-secondary); }
-    .ilink { color: var(--text-info); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-    .ilink:hover { opacity: .8; }
-    .role-pill { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px; background: var(--bg-warning); color: var(--text-warning); font-size: 10px; cursor: pointer; vertical-align: middle; }
-    .role-pill:hover { filter: brightness(.96); }
+    .ilink { color: var(--text-primary); cursor: pointer; text-decoration: none; }
+    .ilink:hover { opacity: .65; }
 
     canvas {
       touch-action: none;
@@ -310,7 +308,7 @@
     .chat-msg { max-width: 85%; padding: 8px 11px; border-radius: 12px; font-size: 13px; line-height: 1.45; }
     .chat-msg.user { align-self: flex-end; background: #F4D7D9; color: #2B2B2B; border-bottom-right-radius: 4px; }
     .chat-msg.bot  { align-self: flex-start; background: var(--bg-secondary); color: var(--text-primary); border-bottom-left-radius: 4px; }
-    .chat-msg .chat-link { color: var(--text-info); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .chat-msg .chat-link { color: var(--text-primary); cursor: pointer; text-decoration: none; font-weight: 500; }
     .chat-msg .chat-link:hover { opacity: .8; }
     #chat-input-row { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--border-secondary); }
     #chat-input {
@@ -818,8 +816,7 @@ function renderBubbleDetail(b) {
     const p = pMap[mid], isLeader = mid === b.leaderId;
     const activeClass = selectedPersonId === mid ? ' active' : '';
     const role = roleOf(b.id, mid);
-    const rolePill = role ? ` <span class="role-pill" onclick="event.stopPropagation();selectRole('${chEscapeAttr(role)}')">${chEscape(role)}</span>` : '';
-    return `<span class="chip clickable${isLeader?' leader':''}${activeClass}" onclick="selectPerson('${mid}')">${chEscape(p.name)}${isLeader?' ★':''}</span>${rolePill}`;
+    return `<span class="chip clickable${isLeader?' leader':''}${activeClass}" onclick="selectPerson('${mid}')">${chEscape(p.name)}${isLeader?' ★':''}${role?` · ${chEscape(role)}`:''}</span>`;
   }).join(' ');
   const sharedBlocks = DATA.bubbles
     .filter(b2 => b2.id !== b.id && sharedCount(b, b2) > 0)
@@ -849,8 +846,7 @@ function selectPerson(pid) {
   const bChips = myBubbles.map(b => {
     const isLeader = b.leaderId === pid;
     const role = roleOf(b.id, pid);
-    const rolePill = role ? ` <span class="role-pill" onclick="event.stopPropagation();selectRole('${chEscapeAttr(role)}')">${chEscape(role)}</span>` : '';
-    return `<span class="chip clickable${isLeader?' leader':''}" onclick="selectBubbleById('${b.id}')">${chEscape(b.name)}${isLeader?' ★':''}</span>${rolePill}`;
+    return `<span class="chip clickable${isLeader?' leader':''}" onclick="selectBubbleById('${b.id}')">${chEscape(b.name)}${isLeader?' ★':''}${role?` · ${chEscape(role)}`:''}</span>`;
   }).join(' ');
   const contact = CONTACTS[pid] || {};
   const contactHtml = [
