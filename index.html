@@ -283,7 +283,7 @@
     <div id="ac-list"></div>
   </div>
   <div id="legend">
-    <div class="leg-item"><div class="leg-dot" style="background:#F09595;border:1.5px solid #E24B4A"></div>Bublina</div>
+    <div id="fam-legend" style="display:flex;flex-wrap:wrap;gap:10px"></div>
     <div class="leg-item"><div class="leg-dot" style="background:#EF9F27;border:1.5px solid #BA7517"></div>Leader bubliny</div>
   </div>
 </div>
@@ -309,6 +309,7 @@
 const SHEET_ID = "1eROLzYDTE5f1uiVd_FKdubMb5adY1ClKFrReq6JduUk";
 const SHEET_PEOPLE  = "Lide";
 const SHEET_BUBBLES = "Bubliny";
+const SHEET_MEMBERS = "Clenstvi"; // volitelný list rolí: id_bubliny | id_clovek | role
 
 /* Záložní (vestavěná) data – použijí se, když se tabulku nepodaří
    načíst (offline, nevyplněné SHEET_ID apod.). */
@@ -435,6 +436,7 @@ function getPhoto(pid) {
 }
 
 let DATA = { people: [], bubbles: [] };
+let ROLES = {}; // ROLES[bubbleId][personId] = role
 const pMap = {}, bMap = {};
 function buildMaps() {
   Object.keys(pMap).forEach(k => delete pMap[k]);
@@ -524,14 +526,40 @@ function initLayout() {
   draw();
 }
 
+// --- Barvy podle "rodiny" -----------------------------------------------
+// Pevné odstíny pro R1..R8 (R1 ≈ červená, drží původní ladění), pak fallback.
+const FAMILY_HUES = { R1: 5, R2: 200, R3: 130, R4: 45, R5: 275, R6: 330, R7: 95, R8: 18 };
+function hueFor(family) {
+  if (!family) return 5;
+  if (FAMILY_HUES[family] != null) return FAMILY_HUES[family];
+  let h = 0;
+  for (let i = 0; i < family.length; i++) h = (h * 31 + family.charCodeAt(i)) % 360;
+  return h;
+}
+// Vrátí barvy bubliny pro daný stav, odvozené z odstínu rodiny.
+function familyColors(family, state, dark) {
+  const h = hueFor(family);
+  let s, l, ls; // sytost, světlost výplně, světlost obrysu
+  if (state === 'hovered')       { s = 65; l = 50; ls = 32; }
+  else if (state === 'selected') { s = 65; l = 42; ls = 26; }
+  else if (state === 'related')  { s = 60; l = 70; ls = 45; }
+  else if (state === 'dimmed')   { s = dark ? 25 : 30; l = dark ? 18 : 92; ls = dark ? 30 : 86; }
+  else                           { s = 55; l = 75; ls = 50; }
+  const fill = `hsl(${h} ${s}% ${l}%)`;
+  const stroke = `hsl(${h} ${Math.min(s + 8, 80)}% ${ls}%)`;
+  const text = l < 55 ? '#FCEBEB' : '#4A1B0C';
+  return { fill, stroke, text };
+}
+
 function drawBubble(n, state) {
   const b = n.data, dark = isDark();
-  let fill, stroke, lw, alpha = 1;
-  if (state === 'hovered')       { fill='#CD2626'; stroke='#791F1F'; lw=2; }
-  else if (state === 'selected') { fill='#A32D2D'; stroke='#501313'; lw=2.5; }
-  else if (state === 'related')  { fill='#F09595'; stroke='#CD2626'; lw=1.5; }
-  else if (state === 'dimmed')   { fill=dark?'#2d1010':'#FCEBEB'; stroke=dark?'#A32D2D':'#F7C1C1'; lw=0.5; alpha=0.3; }
-  else                           { fill='#F09595'; stroke='#E24B4A'; lw=0.5; }
+  const col = familyColors(b.family, state, dark);
+  let fill = col.fill, stroke = col.stroke, lw, alpha = 1;
+  if (state === 'hovered')       { lw = 2; }
+  else if (state === 'selected') { lw = 2.5; }
+  else if (state === 'related')  { lw = 1.5; }
+  else if (state === 'dimmed')   { lw = 0.5; alpha = 0.3; }
+  else                           { lw = 0.5; }
 
   ctx.globalAlpha = alpha;
   ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI*2);
@@ -547,7 +575,7 @@ function drawBubble(n, state) {
   }
   ctx.globalAlpha = alpha;
 
-  ctx.fillStyle = '#4A1B0C'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = col.text; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 
   // Maximální šířka textu = průměr bubliny * 0.82 (trocha padding)
   const maxW = n.r * 1.64;
@@ -628,7 +656,8 @@ canvas.addEventListener('mousemove', e => {
     const b = n.data, leader = pMap[b.leaderId];
     const chips = b.members.map(mid => {
       const p = pMap[mid], cls = mid === b.leaderId ? 'chip leader' : 'chip';
-      return `<span class="${cls}">${p.name}${mid===b.leaderId?' ★':''}</span>`;
+      const role = roleOf(b.id, mid);
+      return `<span class="${cls}">${p.name}${mid===b.leaderId?' ★':''}${role?` · ${role}`:''}</span>`;
     }).join('');
     tip.innerHTML = `<div class="tip-title">${b.name}</div><div class="tip-leader"><img src="${getPhoto(b.leaderId)}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:6px;border:1px solid var(--border-secondary)">★ ${leader.name}</div><div style="color:var(--text-secondary);font-size:11px;margin-bottom:3px">${b.members.length} členů:</div><div class="tip-members">${chips}</div>`;
     tip.style.display = 'block';
@@ -702,7 +731,8 @@ function renderBubbleDetail(b) {
   const memberChips = b.members.map(mid => {
     const p = pMap[mid], isLeader = mid === b.leaderId;
     const activeClass = selectedPersonId === mid ? ' active' : '';
-    return `<span class="chip clickable${isLeader?' leader':''}${activeClass}" onclick="selectPerson('${mid}')">${p.name}${isLeader?' ★':''}</span>`;
+    const role = roleOf(b.id, mid);
+    return `<span class="chip clickable${isLeader?' leader':''}${activeClass}" onclick="selectPerson('${mid}')">${p.name}${isLeader?' ★':''}${role?` · ${role}`:''}</span>`;
   }).join('');
   const sharedBlocks = DATA.bubbles
     .filter(b2 => b2.id !== b.id && sharedCount(b, b2) > 0)
@@ -729,7 +759,8 @@ function selectPerson(pid) {
   const asLeader = myBubbles.filter(b => b.leaderId === pid);
   const bChips = myBubbles.map(b => {
     const isLeader = b.leaderId === pid;
-    return `<span class="chip${isLeader?' leader':''}">${b.name}${isLeader?' ★':''}</span>`;
+    const role = roleOf(b.id, pid);
+    return `<span class="chip${isLeader?' leader':''}">${b.name}${isLeader?' ★':''}${role?` · ${role}`:''}</span>`;
   }).join('');
   const contact = CONTACTS[pid] || {};
   const contactHtml = [
@@ -922,6 +953,7 @@ async function loadFromSheets() {
         id: r.id,
         name: r.nazev || r.name || r.id,
         description: r.popis || r.description || '',
+        family: r.rodina || r.family || '',
         leaderId,
         members,
       };
@@ -932,6 +964,25 @@ async function loadFromSheets() {
 
   DATA = { people, bubbles };
   CONTACTS = contacts;
+
+  // Volitelná vrstva rolí (list Clenstvi). Když chybí, role se prostě nezobrazí.
+  ROLES = {};
+  try {
+    const memberRows = await fetchSheet(SHEET_MEMBERS);
+    memberRows.forEach(r => {
+      const bid = r.id_bubliny || r.idbubliny || r.bublina || '';
+      const pid = r.id_clovek || r.idclovek || r.clovek || r.osoba || '';
+      const role = (r.role || r.funkce || '').trim();
+      if (!bid || !pid || !role) return;
+      (ROLES[bid] || (ROLES[bid] = {}))[pid] = role;
+    });
+  } catch (e) {
+    console.warn('List rolí "' + SHEET_MEMBERS + '" se nepodařilo načíst – role se nezobrazí.', e);
+  }
+}
+
+function roleOf(bubbleId, personId) {
+  return (ROLES[bubbleId] && ROLES[bubbleId][personId]) || '';
 }
 
 function showLoadError(e) {
@@ -954,6 +1005,19 @@ function showLoadError(e) {
   }
 }
 
+function buildLegend() {
+  const el = document.getElementById('fam-legend');
+  if (!el) return;
+  const fams = [...new Set(DATA.bubbles.map(b => b.family).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  if (!fams.length) { el.innerHTML = ''; return; }
+  const dark = isDark();
+  el.innerHTML = fams.map(f => {
+    const c = familyColors(f, 'normal', dark);
+    return `<div class="leg-item"><div class="leg-dot" style="background:${c.fill};border:1.5px solid ${c.stroke}"></div>${f}</div>`;
+  }).join('');
+}
+
 async function start() {
   try {
     await loadFromSheets();
@@ -964,6 +1028,7 @@ async function start() {
     return;
   }
   buildMaps();
+  buildLegend();
   initLayout();
 }
 
